@@ -54,6 +54,7 @@ Habitable-Planet-System/
 ├── Backend/
 │   ├── db.js
 │   ├── index.js
+│   ├── schema.sql
 │   ├── package.json
 │   ├── package-lock.json
 │   └── .env.example
@@ -65,3 +66,116 @@ Habitable-Planet-System/
 │
 ├── .gitignore
 └── README.md
+```
+
+## ⚙️ Setup and Installation
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/sxfxr/Habitable-Planet-System.git
+cd Habitable-Planet-System
+```
+
+### 2. Install backend dependencies
+
+```bash
+cd Backend
+npm install
+```
+
+### 3. Create the PostgreSQL database
+
+Create a database named:
+
+```text
+habitable_planets
+```
+
+Then initialize the tables using the included `schema.sql` file:
+
+```bash
+psql -U postgres -d habitable_planets -f schema.sql
+```
+
+### 4. Configure environment variables
+
+Create a `.env` file inside the `Backend` directory using `.env.example` as a template:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=habitable_planets
+DB_USER=postgres
+DB_PASSWORD=your_postgres_password
+
+JWT_SECRET=replace_with_a_long_random_secret
+PORT=5000
+```
+
+Never commit your real `.env` file or database credentials.
+
+### 5. Start the backend
+
+```bash
+node index.js
+```
+
+The API will run at `http://localhost:5000`.
+
+### 6. Start the frontend
+
+From the `frontend` directory:
+
+```bash
+python -m http.server 5500
+```
+
+Then open `http://localhost:5500/za.html` in your browser.
+
+## 🔐 User Roles
+
+The application supports two roles:
+
+- **Viewer** — explore stars, planets and observation data.
+- **Researcher** — access protected functionality for adding and updating astronomical data.
+
+Authentication is implemented using JSON Web Tokens (JWT), while passwords are hashed using bcrypt.
+
+## 🧠 Habitability Workflow
+
+```text
+Star Data
+   ↓
+Planet Angular Separation
+   ↓
+Estimate Orbital Distance
+   ↓
+Calculate Habitable Zone from Stellar Luminosity
+   ↓
+Classify Planet
+   ↓
+Store Observation in PostgreSQL
+   ↓
+Visualize Result in Three.js
+```
+
+## 🔒 Security
+
+Sensitive configuration such as database passwords and JWT secrets is stored using environment variables.
+
+The `.env` file is excluded from version control through `.gitignore`. Only `.env.example`, containing placeholder values, is included in the repository.
+
+## ⚠️ Limitations
+
+- The habitability model is a simplified educational model based primarily on stellar luminosity and estimated orbital distance.
+- It does not account for factors such as atmospheric composition, planetary mass, magnetic fields, or detailed climate modelling.
+- The project is intended as an interactive full-stack visualization and learning application rather than a professional astronomical analysis tool.
+
+## 👤 Author
+
+**Mohammed Safar**  
+B.Tech Computer Science and Engineering  
+Rajagiri School of Engineering & Technology
+
+GitHub: [sxfxr](https://github.com/sxfxr)
