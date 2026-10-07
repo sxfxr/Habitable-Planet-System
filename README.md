@@ -1,4 +1,3 @@
-@'
 # 🌌 Habitable Planet System
 
 An interactive full-stack web application for exploring stars, planetary systems, and planetary habitability through a 3D space visualization.
