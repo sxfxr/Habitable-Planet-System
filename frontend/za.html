@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Celestial Voyager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #0a0a14; color: white; }
+        canvas { display: block; }
+        .ui-panel {
+            position: absolute;
+            background-color: rgba(10, 10, 20, 0.7);
+            padding: 20px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 10;
+            contain: layout;
+        }
+        #info-panel { top: 20px; left: 20px; width: 300px; max-height: calc(100vh - 40px); overflow-y: hidden; }
+        #info-panel h1 { 
+            margin-top: 0; 
+            font-size: 1.5rem; 
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2); 
+            padding-bottom: 10px; 
+            margin-bottom: 15px; 
+        }
+        #info-panel h1.collapsible {
+            cursor: pointer;
+        }
+        #main-list.scrollable-list { 
+            max-height: 220px;
+            overflow-y: auto;
+        }
+        #info-panel ul { list-style: none; padding: 0; margin: 0; }
+        #info-panel li { padding: 10px 12px; cursor: pointer; transition: background-color 0.3s, transform 0.2s; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        #info-panel li:hover { background-color: rgba(255, 255, 255, 0.1); transform: translateX(5px); }
+        #info-panel li.static-info { cursor: default; background: none; transform: none; display: block; padding: 5px 12px; }
+        .action-button { background-color: #4f46e5; color: white; padding: 8px 12px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.9rem; margin-top: 10px; text-align: center; text-decoration: none; display: block; }
+        .action-button:hover { background-color: #635bff; }
+        .action-button:disabled { background-color: #374151; cursor: not-allowed; }
+        #auth-container { position: absolute; top: 20px; right: 20px; z-index: 20; display: flex; gap: 10px; }
+        #back-button { display: none; margin-top: 15px; padding: 10px; background-color: rgba(79, 70, 229, 0.7); text-align: center; border-radius: 8px; cursor: pointer; }
+        #instructions { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background-color: rgba(0, 0, 0, 0.5); padding: 8px 15px; border-radius: 8px; font-size: 0.9rem; }
+        .label { color: #fff; font-family: 'Inter', sans-serif; font-size: 14px; padding: 4px 8px; border-radius: 4px; background: rgba(0, 0, 0, 0.6); pointer-events: none; transition: opacity 0.3s; }
+        .star-label { font-size: 18px; padding: 6px 10px; }
+        #habitability-panel { top: 20px; left: 340px; width: 200px; text-align: center; display: none; }
+        #habitability-score { font-size: 2.5rem; font-weight: 600; color: #6ee7b7; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app-container">
+        <div id="auth-container"></div>
+        <div id="info-panel" class="ui-panel"><h1 id="panel-title">Galaxy</h1><ul id="main-list"></ul><div id="back-button">← Back to Galaxy</div></div>
+        <div id="habitability-panel" class="ui-panel"><h2>Habitability Score</h2><div id="habitability-score">0%</div><small class="opacity-70">Based on position in habitable zone.</small></div>
+        <div id="instructions">Click a star to zoom in. Drag to rotate. Scroll to zoom.</div>
+        <canvas id="bg"></canvas>
+    </div>
+    <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }</script>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+        const API_BASE_URL = 'http://localhost:5000/api';
+        let currentView = 'galaxy', activeSystem = null, activePlanet = null;
+        const solarSystems = [], galaxy = new THREE.Object3D(), originalCameraPosition = new THREE.Vector3(0, 200, 600);
+        
+        const panelTitle = document.getElementById('panel-title'), mainList = document.getElementById('main-list'), backButton = document.getElementById('back-button');
+        let scene, camera, renderer, controls, labelRenderer;
+        const raycaster = new THREE.Raycaster(), mouse = new THREE.Vector2();
+        
+        let isTweening = false;
+        const tween = {};
+
+        function getAuthToken() { return localStorage.getItem('authToken'); }
+        function getUserRole() {
+            const token = getAuthToken();
+            if (!token) return null;
+            try { return JSON.parse(atob(token.split('.')[1])).role; } 
+            catch (e) { return null; }
+        }
+        function isResearcher() { return getUserRole() === 'researcher'; }
+
+        async function fetchWithAuth(url, options = {}) {
+            const token = getAuthToken();
+            const headers = { 'Content-Type': 'application/json' };
+            if (token) { headers['Authorization'] = `Bearer ${token}`; }
+            options.headers = { ...options.headers, ...headers };
+            const response = await fetch(url, options);
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    localStorage.removeItem('authToken');
+                    updateAuthUI();
+                }
+                const errData = await response.json().catch(() => ({ message: "An unknown API error occurred" }));
+                throw new Error(errData.message || "An API error occurred");
+            }
+            if (response.status === 204) return;
+            return response.json();
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('authToken');
+            updateAuthUI();
+            if (currentView !== 'galaxy') zoomToGalaxy();
+            else updatePanel();
+        }
+
+        function updateAuthUI() {
+            const authContainer = document.getElementById('auth-container');
+            if (isResearcher()) {
+                authContainer.innerHTML = `
+                    <a href="./researcher.html" class="action-button">Researcher Panel</a>
+                    <button id="logout-btn" class="action-button" style="background-color: #dc2626;">Logout</button>
+                `;
+                document.getElementById('logout-btn').addEventListener('click', handleLogout);
+            } else {
+                authContainer.innerHTML = `<a href="./login.html" class="action-button">Login / Register</a>`;
+            }
+        }
+
+        function initScene() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+            renderer = new THREE.WebGLRenderer({ canvas: document.querySelector('#bg'), antialias: true, alpha: false });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.position.copy(originalCameraPosition);
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            scene.add(galaxy);
+            labelRenderer = new CSS2DRenderer();
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.domElement.style.position = 'absolute';
+            labelRenderer.domElement.style.top = '0px';
+            labelRenderer.domElement.style.pointerEvents = 'none';
+            document.getElementById('app-container').appendChild(labelRenderer.domElement);
+            const starVertices = [];
+            for (let i = 0; i < 20000; i++) starVertices.push((Math.random() - 0.5) * 4000, (Math.random() - 0.5) * 4000, (Math.random() - 0.5) * 4000);
+            const starGeometry = new THREE.BufferGeometry();
+            starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+            scene.add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xffffff, size: 0.5 })));
+            scene.add(new THREE.AmbientLight(0xffffff, 0.05));
+        }
+
+        async function initGalaxyData() {
+            try {
+                const starsData = await fetchWithAuth(`${API_BASE_URL}/stars`);
+                galaxy.clear();
+                solarSystems.length = 0;
+                if (!starsData || starsData.length === 0) {
+                    mainList.innerHTML = `<li class="static-info">No star systems found. ${isResearcher() ? 'Go to the Researcher Panel to add one.' : ''}</li>`;
+                    return;
+                }
+                starsData.forEach(starData => solarSystems.push(createStar(starData, true)));
+                updatePanel();
+            } catch (error) { 
+                panelTitle.textContent = "Connection Error";
+                mainList.innerHTML = `<li class="static-info">${error.message}. Is the backend server running?</li>`;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (isTweening) {
+                tween.alpha = Math.min(1, tween.alpha + 0.03);
+                const easedAlpha = 1 - Math.pow(1 - tween.alpha, 3); 
+                camera.position.lerpVectors(tween.startPosition, tween.endPosition, easedAlpha);
+                controls.target.lerpVectors(tween.startTarget, tween.endTarget, easedAlpha);
+                if (tween.alpha >= 1) {
+                    isTweening = false;
+                    controls.enabled = true;
+                }
+            }
+
+            if ((currentView === 'solar_system' || currentView === 'planet') && activeSystem?.planetsLoaded) {
+                Object.values(activeSystem.celestialObjects).forEach(obj => {
+                    obj.mesh.rotation.y += 0.005;
+                    if(obj.visuals.orbitalSpeed) obj.pivot.rotation.y += obj.visuals.orbitalSpeed;
+                });
+            }
+            galaxy.rotation.y += 0.00001;
+
+            const GALAXY_LABEL_THRESHOLD = 900;
+            const SYSTEM_LABEL_THRESHOLD = 150;
+
+            if (currentView === 'galaxy') {
+                solarSystems.forEach(system => {
+                    const distance = camera.position.distanceTo(system.group.position);
+                    const isSymbol = system.sunLabel.element.textContent.length <= 2;
+                    if (!isSymbol && distance > GALAXY_LABEL_THRESHOLD) {
+                        system.sunLabel.element.textContent = '●';
+                    } else if (isSymbol && distance < GALAXY_LABEL_THRESHOLD) {
+                        system.sunLabel.element.textContent = system.name;
+                    }
+                });
+            } else if (activeSystem?.planetsLoaded) {
+                Object.values(activeSystem.celestialObjects).forEach(obj => {
+                    if (obj === activePlanet) {
+                        obj.label.element.textContent = obj.data.planet_name;
+                        return;
+                    }
+                    const distance = camera.position.distanceTo(obj.mesh.getWorldPosition(new THREE.Vector3()));
+                    const isSymbol = obj.label.element.textContent.length <= 2;
+                    if (!isSymbol && distance > SYSTEM_LABEL_THRESHOLD) {
+                        obj.label.element.textContent = '○';
+                    } else if (isSymbol && distance < SYSTEM_LABEL_THRESHOLD) {
+                        obj.label.element.textContent = obj.data.planet_name;
+                    }
+                });
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+        }
+
+        function getHabitabilityInfo(observation, starLuminosity, planetType) {
+            if (planetType?.toLowerCase().includes('giant')) return { emoji: '❄️', score: 0, classification: 'Non-Habitable (Giant)' };
+            if (!observation || !starLuminosity) return { emoji: '❓', score: 0, classification: 'Unknown' };
+            const dist = parseFloat(observation.orbital_distance_au), lum = parseFloat(starLuminosity);
+            if (isNaN(dist) || isNaN(lum)) return { emoji: '❓', score: 0, classification: 'Invalid Data' };
+            const sqrtLum = Math.sqrt(lum), inner_hz = 0.99 * sqrtLum, outer_hz = 1.70 * sqrtLum, optimal_hz = 1.0 * sqrtLum;
+            if (dist < inner_hz) return { emoji: '🔥', score: 0, classification: 'Too Hot' };
+            if (dist > outer_hz) return { emoji: '❄️', score: 0, classification: 'Too Cold' };
+            const warmZone = optimal_hz - inner_hz, coolZone = outer_hz - optimal_hz;
+            let score = (dist <= optimal_hz) ? (warmZone > 0 ? ((dist - inner_hz) / warmZone) : 1) : (coolZone > 0 ? (1 - ((dist - optimal_hz) / coolZone)) : 1);
+            return { emoji: '🌿', score: Math.round(score * 100), classification: 'Habitable Zone' };
+        }
+        
+        function createStar(starData, initial = false) {
+            const systemGroup = new THREE.Object3D();
+            if (initial) systemGroup.position.set((Math.random() - 0.5) * 800, (Math.random() - 0.5) * 200, (Math.random() - 0.5) * 800);
+            galaxy.add(systemGroup);
+            const planetsGroup = new THREE.Object3D(); planetsGroup.visible = false; systemGroup.add(planetsGroup);
+            const sunGeometry = new THREE.SphereGeometry(10, 64, 64);
+            const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffdd00 });
+            const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+            systemGroup.add(sun);
+            sun.add(new THREE.PointLight(0xffffff, 3, 0, 0));
+            const sunLabelDiv = document.createElement('div');
+            sunLabelDiv.className = 'label star-label';
+            sunLabelDiv.textContent = starData.star_name;
+            const sunLabel = new CSS2DObject(sunLabelDiv);
+            sunLabel.position.set(0, 15, 0);
+            sun.add(sunLabel);
+            return { id: starData.star_id, name: starData.star_name, sun, sunLabel, planetsGroup, celestialObjects: {}, group: systemGroup, planetsLoaded: false, data: starData };
+        }
+
+        // --- FIX 1: ADD HELPER FUNCTION TO PROPERLY DISPOSE OF OLD OBJECTS ---
+        function disposeSystem(system) {
+            // Dispose of all planet meshes and their materials/geometries
+            Object.values(system.celestialObjects).forEach(obj => {
+                if (obj.mesh) {
+                    if (obj.mesh.geometry) obj.mesh.geometry.dispose();
+                    if (obj.mesh.material) obj.mesh.material.dispose();
+                }
+            });
+            // Dispose of all orbit meshes and their materials/geometries
+            system.planetsGroup.children.filter(child => child.isMesh && child.geometry.type === 'TorusGeometry').forEach(orbit => {
+                if (orbit.geometry) orbit.geometry.dispose();
+                if (orbit.material) orbit.material.dispose();
+            });
+            // Clear the groups and object maps
+            system.planetsGroup.clear();
+            system.celestialObjects = {};
+        }
+
+        function createPlanet(planetData, observation, system) {
+            const getPlanetVisuals = pData => { const type = pData.planet_type?.toLowerCase() || 'unknown'; if (type.includes('super-earth')) return { radius: 2.2, color: 0x4f46e5, orbitalSpeed: 0.00013 }; if (type.includes('terrestrial')) return { radius: 1.8, color: 0x00A86B, orbitalSpeed: 0.00015 }; if (type.includes('gas giant')) return { radius: 5, color: 0xFFA500, orbitalSpeed: 0.00005 }; if (type.includes('ice giant')) return { radius: 3.5, color: 0xADD8E6, orbitalSpeed: 0.00003 }; return { radius: 1, color: 0x8c8c8c, orbitalSpeed: 0.00012 }; };
+            const visuals = getPlanetVisuals(planetData);
+            const body = new THREE.Mesh(new THREE.SphereGeometry(visuals.radius, 32, 32), new THREE.MeshStandardMaterial({ color: visuals.color, roughness: 0.8, metalness: 0.1 }));
+            const pivot = new THREE.Object3D();
+            pivot.rotation.y = Math.random() * Math.PI * 2;
+            pivot.add(body);
+            system.planetsGroup.add(pivot);
+            const distance = 20 + (parseFloat(observation?.orbital_distance_au) || (Object.keys(system.celestialObjects).length * 35)) * 30;
+            body.position.x = distance;
+            const labelDiv = document.createElement('div'); labelDiv.className = 'label'; labelDiv.textContent = planetData.planet_name;
+            const planetLabel = new CSS2DObject(labelDiv);
+            planetLabel.position.set(0, visuals.radius * 1.5 + 1, 0);
+            planetLabel.visible = false;
+            body.add(planetLabel);
+            const orbit = new THREE.Mesh(new THREE.TorusGeometry(distance, 0.05, 16, 100), new THREE.MeshBasicMaterial({ color: 0xaaaaaa, side: THREE.DoubleSide, transparent: true, opacity: 0.3 }));
+            orbit.rotation.x = Math.PI / 2;
+            system.planetsGroup.add(orbit);
+            system.celestialObjects[planetData.planet_id] = { mesh: body, pivot, data: planetData, label: planetLabel, visuals };
+        }
+
+        async function updatePanel() {
+            mainList.innerHTML = '';
+            const habitabilityPanel = document.getElementById('habitability-panel');
+            
+            if (currentView === 'galaxy') {
+                panelTitle.innerHTML = 'Galaxy ▸';
+                panelTitle.classList.add('collapsible');
+                mainList.classList.add('scrollable-list'); 
+                mainList.style.display = 'none';
+                backButton.style.display = 'none'; 
+                habitabilityPanel.style.display = 'none';
+                solarSystems.forEach(system => { const li = document.createElement('li'); li.innerHTML = `<span>${system.name}</span>`; li.onclick = () => zoomToSystem(system); mainList.appendChild(li); });
+            } else if (currentView === 'solar_system') {
+                panelTitle.innerHTML = activeSystem.name;
+                panelTitle.classList.remove('collapsible');
+                mainList.classList.remove('scrollable-list');
+                mainList.style.display = 'block';
+                backButton.style.display = 'block'; 
+                backButton.textContent = '← Back to Galaxy'; 
+                habitabilityPanel.style.display = 'none';
+                Object.values(activeSystem.celestialObjects).forEach(obj => { const li = document.createElement('li'); li.innerHTML = `<span>${obj.data.planet_name}</span><span>${obj.habitability?.emoji || '❓'}</span>`; li.onclick = () => zoomToPlanet(obj); mainList.appendChild(li); });
+                if (isResearcher()) {
+                    const addButton = document.createElement('a');
+                    addButton.href = `./researcher.html?action=add_planet&star_id=${activeSystem.id}`;
+                    addButton.className = 'action-button';
+                    addButton.textContent = '＋ Add Planet to System';
+                    mainList.appendChild(addButton);
+                }
+            }
+        }
+        
+        async function zoomToSystem(system) {
+            currentView = 'solar_system'; activeSystem = system; activePlanet = null;
+            
+            if (!system.planetsLoaded) {
+                try {
+                    const systemData = await fetchWithAuth(`${API_BASE_URL}/stars/${system.id}`);
+                    system.data = systemData.star;
+                    
+                    // --- FIX 2: CALL THE DISPOSE FUNCTION BEFORE REBUILDING ---
+                    disposeSystem(system);
+
+                    const planets = systemData.planets;
+                    const observationPromises = planets.map(p => fetchWithAuth(`${API_BASE_URL}/planets/${p.planet_id}/observations`).then(data => data[0] || null));
+                    const latestObservations = await Promise.all(observationPromises);
+                    
+                    planets.forEach((pData, index) => {
+                        const observation = latestObservations[index];
+                        createPlanet(pData, observation, system);
+                        const planetObj = system.celestialObjects[pData.planet_id];
+                        if (planetObj) {
+                            planetObj.latestObservation = observation;
+                            planetObj.habitability = getHabitabilityInfo(observation, system.data.luminosity, pData.planet_type);
+                        }
+                    });
+                    system.planetsLoaded = true;
+                } catch (error) { console.error(`Failed to load planets for ${system.name}:`, error); return; }
+            }
+            system.planetsGroup.visible = true;
+            Object.values(activeSystem.celestialObjects).forEach(obj => obj.label.visible = true);
+            solarSystems.forEach(s => { s.sun.visible = (s === system); s.sunLabel.visible = false; });
+            
+            // --- FIX 3: ALWAYS FOCUS THE CAMERA ON THE STAR WHEN VIEWING A SYSTEM ---
+            // This ensures the camera is never in a broken or "stranded" state.
+            focusOnObject(system.sun, 200);
+            
+            updatePanel();
+        }
+
+        async function handleCalculateHabitability(planet, buttonEl) {
+            buttonEl.disabled = true;
+            buttonEl.textContent = 'Calculating...';
+            try {
+                const newObservation = await fetchWithAuth(`${API_BASE_URL}/planets/${planet.data.planet_id}/calculate`, { method: 'POST' });
+                planet.latestObservation = newObservation;
+                planet.habitability = getHabitabilityInfo(newObservation, activeSystem.data.luminosity, planet.data.planet_type);
+                zoomToPlanet(planet);
+            } catch (error) {
+                console.error("Failed to calculate habitability:", error);
+                buttonEl.textContent = 'Calculation Failed';
+                buttonEl.disabled = false;
+            }
+        }
+
+        function zoomToPlanet(planet) {
+            const habitabilityPanel = document.getElementById('habitability-panel');
+            const habitabilityScoreEl = document.getElementById('habitability-score');
+            currentView = 'planet'; activePlanet = planet;
+            panelTitle.innerHTML = planet.data.planet_name;
+            panelTitle.classList.remove('collapsible');
+            mainList.classList.remove('scrollable-list');
+            mainList.style.display = 'block';
+            backButton.style.display = 'block'; backButton.textContent = '← Back to System';
+            document.getElementById('instructions').textContent = 'Observation Data';
+            habitabilityPanel.style.display = 'block';
+            habitabilityScoreEl.textContent = `${planet.habitability?.score || 0}%`;
+            Object.values(activeSystem.celestialObjects).forEach(obj => obj.label.visible = (obj === planet));
+            focusOnObject(planet.mesh, (planet.visuals.radius || 1) * 4);
+            let panelHTML = `<li class="static-info">Type: <strong>${planet.data.planet_type}</strong></li>`;
+            if (planet.habitability) panelHTML += `<li class="static-info">Habitability: <strong>${planet.habitability.classification}</strong></li>`;
+            if (planet.latestObservation) panelHTML += `<li class="static-info mt-2 pt-2 border-t border-gray-700"><small>Orbital Distance: ${planet.latestObservation.orbital_distance_au} AU</small><br><small>Observed on: ${new Date(planet.latestObservation.observation_date).toLocaleDateString()}</small></li>`;
+            else panelHTML += `<li class="static-info mt-2">No detailed observation data found.</li>`;
+            mainList.innerHTML = panelHTML;
+            if (isResearcher() && !planet.latestObservation) {
+                const calcButton = document.createElement('button');
+                calcButton.className = 'action-button';
+                calcButton.textContent = 'Calculate Habitability';
+                mainList.appendChild(calcButton);
+                calcButton.onclick = e => { e.stopPropagation(); handleCalculateHabitability(planet, calcButton); };
+            }
+        }
+
+        function zoomToGalaxy() {
+            if (activeSystem) { activeSystem.planetsGroup.visible = false; Object.values(activeSystem.celestialObjects).forEach(obj => obj.label.visible = false); }
+            currentView = 'galaxy'; activeSystem = null; activePlanet = null;
+            document.getElementById('instructions').textContent = 'Click a star to zoom in. Drag to rotate. Scroll to zoom.';
+            document.getElementById('habitability-panel').style.display = 'none';
+            solarSystems.forEach(s => { s.sun.visible = true; s.sunLabel.visible = true; });
+            focusOnObject(null, null, originalCameraPosition, new THREE.Vector3(0,0,0));
+            updatePanel();
+        }
+        
+        function focusOnObject(targetObject, offsetSize, explicitPosition, explicitTarget) {
+            controls.enabled = false;
+            const worldPosition = new THREE.Vector3();
+            if (targetObject) {
+                targetObject.getWorldPosition(worldPosition);
+            }
+            tween.startPosition = camera.position.clone();
+            tween.endPosition = explicitPosition || worldPosition.clone().add(new THREE.Vector3(offsetSize, offsetSize / 2, offsetSize));
+            tween.startTarget = controls.target.clone();
+            tween.endTarget = explicitTarget || worldPosition;
+            tween.alpha = 0;
+            isTweening = true;
+        }
+
+        function onMouseClick(event) {
+            if (isTweening || event.target.closest('.ui-panel')) return;
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1; mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            if (currentView === 'galaxy') {
+                const intersects = raycaster.intersectObjects(solarSystems.map(s => s.sun));
+                if (intersects.length > 0) { const system = solarSystems.find(s => s.sun === intersects[0].object); if(system) zoomToSystem(system); }
+            } else if (currentView === 'solar_system') {
+                const planetsMeshes = Object.values(activeSystem.celestialObjects).map(o => o.mesh);
+                const intersects = raycaster.intersectObjects(planetsMeshes);
+                 if (intersects.length > 0) { const planet = Object.values(activeSystem.celestialObjects).find(o => o.mesh === intersects[0].object); if(planet) zoomToPlanet(planet); }
+            }
+        }
+        
+        function main() {
+            initScene();
+            initGalaxyData();
+            animate();
+            updateAuthUI();
+            
+            panelTitle.addEventListener('click', () => {
+                if (currentView === 'galaxy') {
+                    const isHidden = mainList.style.display === 'none';
+                    mainList.style.display = isHidden ? 'block' : 'none';
+                    panelTitle.innerHTML = isHidden ? 'Galaxy ▾' : 'Galaxy ▸';
+                }
+            });
+
+            window.addEventListener('click', onMouseClick);
+            window.addEventListener('resize', () => { if(camera) { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); labelRenderer.setSize(window.innerWidth, window.innerHeight); }});
+            // --- FIX 4: SIMPLIFY BACK BUTTON LOGIC ---
+            // It now correctly calls zoomToSystem, which will handle the camera movement.
+            backButton.onclick = () => { if (currentView === 'planet') zoomToSystem(activeSystem); else if (currentView === 'solar_system') zoomToGalaxy(); };
+        }
+        main();
+    </script>
+</body>
+</html>

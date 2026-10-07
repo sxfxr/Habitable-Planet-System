@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Researcher Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0a0a14; color: white; padding: 2rem; }
+        .form-container { background: #111827; padding: 30px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 2rem; }
+        .form-container h2 { font-size: 1.8rem; font-weight: 600; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display: block; margin-bottom: 5px; font-size: 0.9rem; color: #a0a7b5; }
+        .form-input, .form-select { width: 100%; background: #1f2937; border: 1px solid #374151; color: white; padding: 10px; border-radius: 8px; font-size: 1rem; }
+        .form-button { width: 100%; background: #4f46e5; color: white; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
+        .form-button:disabled { background: #374151; cursor: not-allowed; }
+        .form-status { font-size: 0.9rem; margin-top: 10px; min-height: 1.25rem; }
+        .form-error { color: #ef4444; }
+        .form-success { color: #22c55e; }
+        .action-button { background-color: #4f46e5; color: white; padding: 8px 12px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.9rem; text-decoration: none; }
+        .clear-btn { background: none; border: none; color: #9ca3af; font-size: 0.9rem; cursor: pointer; margin-top: 15px; text-align: center; display: block; width: 100%; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <header class="flex justify-between items-center mb-8">
+        <h1 class="text-3xl font-bold">Researcher Panel</h1>
+        <div>
+            <a href="./za.html" class="text-indigo-400 hover:text-indigo-300 mr-4">← Back to Visualization</a>
+            <button id="logout-btn" class="action-button" style="background-color: #dc2626;">Logout</button>
+        </div>
+    </header>
+    <main class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div class="form-container">
+            <div class="form-group"><label for="star-select-edit">Select Star to Edit (Optional)</label><select id="star-select-edit" class="form-select"></select></div>
+            <h2 id="star-form-title">Add New Star</h2>
+            <form id="star-form"><input type="hidden" id="star-id"><div class="form-group"><label for="star-name">Star Name</label><input type="text" id="star-name" class="form-input" required></div><div class="form-group"><label for="star-luminosity">Luminosity (vs. Sun)</label><input type="number" step="any" id="star-luminosity" class="form-input" required></div><div class="form-group"><label for="star-spectral-type">Spectral Type</label><input type="text" id="star-spectral-type" class="form-input" placeholder="e.g., G2V" required></div><div class="form-group"><label for="star-distance">Distance (LY)</label><input type="number" step="any" id="star-distance" class="form-input" required></div><button type="submit" class="form-button" id="star-submit-btn">Add Star</button><button type="button" id="star-clear-btn" class="clear-btn hidden">Cancel Edit</button><p id="star-status" class="form-status"></p></form>
+        </div>
+        <div class="form-container">
+            <div class="form-group"><label for="planet-star-select">Select Star System</label><select id="planet-star-select" class="form-select" required></select></div>
+            <div class="form-group"><label for="planet-select-edit">Select Planet to Edit (Optional)</label><select id="planet-select-edit" class="form-select"></select></div>
+            <h2 id="planet-form-title">Add New Planet</h2>
+            <form id="planet-form">
+                <input type="hidden" id="planet-id">
+                <div class="form-group"><label for="planet-name">Planet Name</label><input type="text" id="planet-name" class="form-input" required></div>
+                <div class="form-group"><label for="planet-type">Planet Type</label><select id="planet-type" class="form-select" required><option value="Terrestrial">Terrestrial</option><option value="Rocky">Rocky</option><option value="Gas Giant">Gas Giant</option><option value="Ice Giant">Ice Giant</option><option value="Dwarf Planet">Dwarf Planet</option><option value="Super-Earth">Super-Earth</option></select></div>
+                <div class="form-group">
+                    <label for="planet-angular-separation">Angular Separation (arcsec)</label>
+                    <input type="number" step="any" id="planet-angular-separation" class="form-input" required title="For exoplanets, this is used with the star's distance to calculate the orbital distance. For Solar System planets, this is a placeholder and the trigger uses a hardcoded value.">
+                </div>
+                <button type="submit" class="form-button" id="planet-submit-btn">Add Planet</button>
+                <button type="button" id="planet-clear-btn" class="clear-btn hidden">Cancel Edit</button>
+                <p id="planet-status" class="form-status"></p>
+            </form>
+        </div>
+    </main>
+    <script>
+        const API_BASE_URL = 'http://localhost:5000/api';
+        let allStars = [], allPlanets = [];
+        const token = localStorage.getItem('authToken');
+        if (!token || JSON.parse(atob(token.split('.')[1])).role !== 'researcher') { window.location.href = './login.html'; }
+        document.getElementById('logout-btn').addEventListener('click', () => { localStorage.removeItem('authToken'); window.location.href = './login.html'; });
+        async function fetchWithAuth(url, options = {}) { const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; options.headers = { ...options.headers, ...headers }; const response = await fetch(url, options); if (!response.ok) { if(response.status === 401 || response.status === 403) { window.location.href = './login.html'; } const errData = await response.json(); throw new Error(errData.message || "An API error occurred"); } if (response.status === 204) return; return response.json(); }
+        const starForm = document.getElementById('star-form'), planetForm = document.getElementById('planet-form');
+        const starStatus = document.getElementById('star-status'), planetStatus = document.getElementById('planet-status');
+        const starSelectEdit = document.getElementById('star-select-edit'), planetStarSelect = document.getElementById('planet-star-select'), planetSelectEdit = document.getElementById('planet-select-edit');
+        const starFormTitle = document.getElementById('star-form-title'), planetFormTitle = document.getElementById('planet-form-title');
+        const starSubmitBtn = document.getElementById('star-submit-btn'), planetSubmitBtn = document.getElementById('planet-submit-btn');
+        const starClearBtn = document.getElementById('star-clear-btn'), planetClearBtn = document.getElementById('planet-clear-btn');
+
+        async function populateStars() { try { allStars = await fetchWithAuth(`${API_BASE_URL}/stars`); const options = ['<option value="">-- Choose a star --</option>', ...allStars.map(s => `<option value="${s.star_id}">${s.star_name}</option>`)]; starSelectEdit.innerHTML = options.join(''); planetStarSelect.innerHTML = options.join(''); } catch (e) { console.error('Could not load stars:', e); } }
+        async function populatePlanetsForStar(starId) { planetSelectEdit.innerHTML = '<option value="">-- Loading planets... --</option>'; if (!starId) { planetSelectEdit.innerHTML = ''; return; } try { const data = await fetchWithAuth(`${API_BASE_URL}/stars/${starId}`); allPlanets = data.planets; const options = ['<option value="">-- Choose a planet to edit --</option>', ...allPlanets.map(p => `<option value="${p.planet_id}">${p.planet_name}</option>`)]; planetSelectEdit.innerHTML = options.join(''); } catch (e) { console.error('Could not load planets:', e); } }
+        function clearStarForm() { starForm.reset(); starSelectEdit.value = ''; starForm.elements['star-id'].value = ''; starFormTitle.textContent = 'Add New Star'; starSubmitBtn.textContent = 'Add Star'; starClearBtn.classList.add('hidden'); }
+        function clearPlanetForm() { planetForm.reset(); planetSelectEdit.value = ''; planetForm.elements['planet-id'].value = ''; planetFormTitle.textContent = 'Add New Planet'; planetSubmitBtn.textContent = 'Add Planet'; planetClearBtn.classList.add('hidden'); }
+        
+        starSelectEdit.addEventListener('change', (e) => { const starId = e.target.value; if (!starId) { clearStarForm(); return; } const star = allStars.find(s => s.star_id == starId); starForm.elements['star-id'].value = star.star_id; starForm.elements['star-name'].value = star.star_name; starForm.elements['star-luminosity'].value = star.luminosity; starForm.elements['star-spectral-type'].value = star.spectral_type; starForm.elements['star-distance'].value = star.distance_ly; starFormTitle.textContent = 'Edit Star'; starSubmitBtn.textContent = 'Save Changes'; starClearBtn.classList.remove('hidden'); });
+        planetStarSelect.addEventListener('change', (e) => { clearPlanetForm(); populatePlanetsForStar(e.target.value); });
+        
+        planetSelectEdit.addEventListener('change', async (e) => {
+            const planetId = e.target.value;
+            if (!planetId) { clearPlanetForm(); return; }
+            const planet = allPlanets.find(p => p.planet_id == planetId);
+            
+            planetForm.elements['planet-id'].value = planet.planet_id;
+            planetForm.elements['planet-name'].value = planet.planet_name;
+            planetForm.elements['planet-type'].value = planet.planet_type;
+            
+            // For editing, populate the field with the planet's own angular separation
+            document.getElementById('planet-angular-separation').value = planet.angular_separation_arcsec;
+            
+            planetFormTitle.textContent = 'Edit Planet';
+            planetSubmitBtn.textContent = 'Save Changes';
+            planetClearBtn.classList.remove('hidden');
+        });
+
+        starClearBtn.addEventListener('click', clearStarForm);
+        planetClearBtn.addEventListener('click', clearPlanetForm);
+
+        starForm.addEventListener('submit', async (e) => { e.preventDefault(); starStatus.textContent = ''; starSubmitBtn.disabled = true; starSubmitBtn.textContent = 'Submitting...'; const id = e.target.elements['star-id'].value; const isEditing = !!id; const url = isEditing ? `${API_BASE_URL}/stars/${id}` : `${API_BASE_URL}/stars`; const method = isEditing ? 'PUT' : 'POST'; const payload = { star_name: e.target.elements['star-name'].value, luminosity: parseFloat(e.target.elements['star-luminosity'].value), spectral_type: e.target.elements['star-spectral-type'].value, distance_ly: parseFloat(e.target.elements['star-distance'].value) }; try { await fetchWithAuth(url, { method, body: JSON.stringify(payload) }); starStatus.className = 'form-status form-success'; starStatus.textContent = `Star successfully ${isEditing ? 'updated' : 'added'}!`; clearStarForm(); await populateStars(); } catch (err) { starStatus.className = 'form-status form-error'; starStatus.textContent = err.message; } finally { starSubmitBtn.disabled = false; starSubmitBtn.textContent = isEditing ? 'Save Changes' : 'Add Star'; } });
+        planetForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            planetStatus.textContent = '';
+            planetSubmitBtn.disabled = true;
+            planetSubmitBtn.textContent = 'Submitting...';
+            const id = e.target.elements['planet-id'].value;
+            const isEditing = !!id;
+            const url = isEditing ? `${API_BASE_URL}/planets/${id}` : `${API_BASE_URL}/planets`;
+            const method = isEditing ? 'PUT' : 'POST';
+            
+            const payload = { 
+                star_id: planetStarSelect.value, 
+                planet_name: e.target.elements['planet-name'].value, 
+                planet_type: e.target.elements['planet-type'].value, 
+                orbital_distance_au: parseFloat(document.getElementById('planet-angular-separation').value)
+            };
+
+            if (!payload.star_id) { planetStatus.className = 'form-status form-error'; planetStatus.textContent = 'Please select a star system.'; planetSubmitBtn.disabled = false; planetSubmitBtn.textContent = isEditing ? 'Save Changes' : 'Add Planet'; return; }
+            try {
+                await fetchWithAuth(url, { method, body: JSON.stringify(payload) });
+                planetStatus.className = 'form-status form-success';
+                planetStatus.textContent = `Planet successfully ${isEditing ? 'updated' : 'added'}!`;
+                const selectedStarId = planetStarSelect.value;
+                clearPlanetForm();
+                planetStarSelect.value = selectedStarId;
+                await populatePlanetsForStar(selectedStarId);
+            } catch (err) {
+                planetStatus.className = 'form-status form-error';
+                planetStatus.textContent = err.message;
+            } finally {
+                planetSubmitBtn.disabled = false;
+                planetSubmitBtn.textContent = isEditing ? 'Save Changes' : 'Add Planet';
+            }
+        });
+        
+        function handleUrlParams() { const params = new URLSearchParams(window.location.search); if (params.get('action') === 'add_planet' && params.get('star_id')) { planetStarSelect.value = params.get('star_id'); document.getElementById('planet-name').focus(); populatePlanetsForStar(params.get('star_id')); } }
+        async function init() { await populateStars(); handleUrlParams(); }
+        init();
+    </script>
+</body>
+</html>
