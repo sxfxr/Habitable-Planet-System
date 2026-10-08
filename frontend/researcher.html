@@ -46,7 +46,7 @@
                 <div class="form-group"><label for="planet-type">Planet Type</label><select id="planet-type" class="form-select" required><option value="Terrestrial">Terrestrial</option><option value="Rocky">Rocky</option><option value="Gas Giant">Gas Giant</option><option value="Ice Giant">Ice Giant</option><option value="Dwarf Planet">Dwarf Planet</option><option value="Super-Earth">Super-Earth</option></select></div>
                 <div class="form-group">
                     <label for="planet-angular-separation">Angular Separation (arcsec)</label>
-                    <input type="number" step="any" id="planet-angular-separation" class="form-input" required title="For exoplanets, this is used with the star's distance to calculate the orbital distance. For Solar System planets, this is a placeholder and the trigger uses a hardcoded value.">
+                    <input type="number" step="any" id="planet-angular-separation" class="form-input" required title="For exoplanets, this is used with the star's distance to calculate the orbital distance. For the educational Solar System exhibit, planet data is managed separately from this research form.">
                 </div>
                 <button type="submit" class="form-button" id="planet-submit-btn">Add Planet</button>
                 <button type="button" id="planet-clear-btn" class="clear-btn hidden">Cancel Edit</button>
@@ -55,10 +55,14 @@
         </div>
     </main>
     <script>
-        const API_BASE_URL = 'http://localhost:5000/api';
+        const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const API_BASE_URL = `${window.location.origin}/api`;
         let allStars = [], allPlanets = [];
         const token = localStorage.getItem('authToken');
-        if (!token || JSON.parse(atob(token.split('.')[1])).role !== 'researcher') { window.location.href = './login.html'; }
+        try {
+            const claims = JSON.parse(atob(token.split('.')[1]));
+            if (claims.role !== 'researcher' || claims.exp * 1000 <= Date.now()) throw new Error('Expired session');
+        } catch { localStorage.removeItem('authToken'); window.location.href = './login.html'; }
         document.getElementById('logout-btn').addEventListener('click', () => { localStorage.removeItem('authToken'); window.location.href = './login.html'; });
         async function fetchWithAuth(url, options = {}) { const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }; options.headers = { ...options.headers, ...headers }; const response = await fetch(url, options); if (!response.ok) { if(response.status === 401 || response.status === 403) { window.location.href = './login.html'; } const errData = await response.json(); throw new Error(errData.message || "An API error occurred"); } if (response.status === 204) return; return response.json(); }
         const starForm = document.getElementById('star-form'), planetForm = document.getElementById('planet-form');
@@ -68,26 +72,26 @@
         const starSubmitBtn = document.getElementById('star-submit-btn'), planetSubmitBtn = document.getElementById('planet-submit-btn');
         const starClearBtn = document.getElementById('star-clear-btn'), planetClearBtn = document.getElementById('planet-clear-btn');
 
-        async function populateStars() { try { allStars = await fetchWithAuth(`${API_BASE_URL}/stars`); const options = ['<option value="">-- Choose a star --</option>', ...allStars.map(s => `<option value="${s.star_id}">${s.star_name}</option>`)]; starSelectEdit.innerHTML = options.join(''); planetStarSelect.innerHTML = options.join(''); } catch (e) { console.error('Could not load stars:', e); } }
-        async function populatePlanetsForStar(starId) { planetSelectEdit.innerHTML = '<option value="">-- Loading planets... --</option>'; if (!starId) { planetSelectEdit.innerHTML = ''; return; } try { const data = await fetchWithAuth(`${API_BASE_URL}/stars/${starId}`); allPlanets = data.planets; const options = ['<option value="">-- Choose a planet to edit --</option>', ...allPlanets.map(p => `<option value="${p.planet_id}">${p.planet_name}</option>`)]; planetSelectEdit.innerHTML = options.join(''); } catch (e) { console.error('Could not load planets:', e); } }
+        async function populateStars() { try { allStars = await fetchWithAuth(`${API_BASE_URL}/stars`); const options = ['<option value="">-- Choose a star --</option>', ...allStars.map(s => `<option value="${s.star_id}">${escapeHTML(s.star_name)}</option>`)]; starSelectEdit.innerHTML = options.join(''); planetStarSelect.innerHTML = options.join(''); } catch (e) { console.error('Could not load stars:', e); } }
+        async function populatePlanetsForStar(starId) { planetSelectEdit.innerHTML = '<option value="">-- Loading planets... --</option>'; if (!starId) { planetSelectEdit.innerHTML = ''; return; } try { const data = await fetchWithAuth(`${API_BASE_URL}/stars/${starId}`); allPlanets = data.planets; const options = ['<option value="">-- Choose a planet to edit --</option>', ...allPlanets.map(p => `<option value="${p.planet_id}">${escapeHTML(p.planet_name)}</option>`)]; planetSelectEdit.innerHTML = options.join(''); } catch (e) { console.error('Could not load planets:', e); } }
         function clearStarForm() { starForm.reset(); starSelectEdit.value = ''; starForm.elements['star-id'].value = ''; starFormTitle.textContent = 'Add New Star'; starSubmitBtn.textContent = 'Add Star'; starClearBtn.classList.add('hidden'); }
         function clearPlanetForm() { planetForm.reset(); planetSelectEdit.value = ''; planetForm.elements['planet-id'].value = ''; planetFormTitle.textContent = 'Add New Planet'; planetSubmitBtn.textContent = 'Add Planet'; planetClearBtn.classList.add('hidden'); }
-        
+
         starSelectEdit.addEventListener('change', (e) => { const starId = e.target.value; if (!starId) { clearStarForm(); return; } const star = allStars.find(s => s.star_id == starId); starForm.elements['star-id'].value = star.star_id; starForm.elements['star-name'].value = star.star_name; starForm.elements['star-luminosity'].value = star.luminosity; starForm.elements['star-spectral-type'].value = star.spectral_type; starForm.elements['star-distance'].value = star.distance_ly; starFormTitle.textContent = 'Edit Star'; starSubmitBtn.textContent = 'Save Changes'; starClearBtn.classList.remove('hidden'); });
         planetStarSelect.addEventListener('change', (e) => { clearPlanetForm(); populatePlanetsForStar(e.target.value); });
-        
+
         planetSelectEdit.addEventListener('change', async (e) => {
             const planetId = e.target.value;
             if (!planetId) { clearPlanetForm(); return; }
             const planet = allPlanets.find(p => p.planet_id == planetId);
-            
+
             planetForm.elements['planet-id'].value = planet.planet_id;
             planetForm.elements['planet-name'].value = planet.planet_name;
             planetForm.elements['planet-type'].value = planet.planet_type;
-            
+
             // For editing, populate the field with the planet's own angular separation
             document.getElementById('planet-angular-separation').value = planet.angular_separation_arcsec;
-            
+
             planetFormTitle.textContent = 'Edit Planet';
             planetSubmitBtn.textContent = 'Save Changes';
             planetClearBtn.classList.remove('hidden');
@@ -106,12 +110,12 @@
             const isEditing = !!id;
             const url = isEditing ? `${API_BASE_URL}/planets/${id}` : `${API_BASE_URL}/planets`;
             const method = isEditing ? 'PUT' : 'POST';
-            
-            const payload = { 
-                star_id: planetStarSelect.value, 
-                planet_name: e.target.elements['planet-name'].value, 
-                planet_type: e.target.elements['planet-type'].value, 
-                orbital_distance_au: parseFloat(document.getElementById('planet-angular-separation').value)
+
+            const payload = {
+                star_id: planetStarSelect.value,
+                planet_name: e.target.elements['planet-name'].value,
+                planet_type: e.target.elements['planet-type'].value,
+                angular_separation_arcsec: parseFloat(document.getElementById('planet-angular-separation').value)
             };
 
             if (!payload.star_id) { planetStatus.className = 'form-status form-error'; planetStatus.textContent = 'Please select a star system.'; planetSubmitBtn.disabled = false; planetSubmitBtn.textContent = isEditing ? 'Save Changes' : 'Add Planet'; return; }
@@ -131,7 +135,7 @@
                 planetSubmitBtn.textContent = isEditing ? 'Save Changes' : 'Add Planet';
             }
         });
-        
+
         function handleUrlParams() { const params = new URLSearchParams(window.location.search); if (params.get('action') === 'add_planet' && params.get('star_id')) { planetStarSelect.value = params.get('star_id'); document.getElementById('planet-name').focus(); populatePlanetsForStar(params.get('star_id')); } }
         async function init() { await populateStars(); handleUrlParams(); }
         init();

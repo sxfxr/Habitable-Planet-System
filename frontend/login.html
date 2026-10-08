@@ -10,7 +10,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #0a0a14; color: white; }
-        
+
         #background-gif {
             position: fixed;
             top: 0;
@@ -28,59 +28,59 @@
         }
 
         .auth-view { display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; justify-content: center; align-items: center; }
-        
-        .auth-container { 
+
+        .auth-container {
             background: rgba(17, 24, 39, 0.7);
-            padding: 30px; 
-            border-radius: 12px; 
-            width: 400px; 
-            border: 1px solid rgba(255,255,255,0.1); 
+            padding: 30px;
+            border-radius: 12px;
+            width: 400px;
+            border: 1px solid rgba(255,255,255,0.1);
             backdrop-filter: blur(5px);
         }
 
         /* Updated h2 style to use the new Bebas Neue font */
-        .auth-container h2 { 
+        .auth-container h2 {
             font-family: 'Bebas Neue', sans-serif;
             font-size: 2.5rem; /* Increased size for impact */
             font-weight: 400;
-            margin-bottom: 20px; 
-            text-align: center; 
+            margin-bottom: 20px;
+            text-align: center;
             letter-spacing: 0.05em; /* A little spacing for style */
         }
 
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; margin-bottom: 5px; font-size: 0.9rem; color: #a0a7b5; }
-        
-        .form-input, .form-select { 
-            width: 100%; 
-            background: #1f2937; 
-            border: 1px solid #374151; 
-            color: white; 
-            padding: 10px; 
-            border-radius: 8px; 
-            font-size: 1rem; 
+
+        .form-input, .form-select {
+            width: 100%;
+            background: #1f2937;
+            border: 1px solid #374151;
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 1rem;
         }
-        .form-button { 
-            width: 100%; 
-            background: #4f46e5; 
-            color: white; 
-            padding: 12px; 
-            border-radius: 8px; 
-            border: none; 
-            cursor: pointer; 
-            font-weight: 600; 
-            transition: background-color 0.3s; 
+        .form-button {
+            width: 100%;
+            background: #4f46e5;
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.3s;
         }
         .form-button:hover { background-color: #635bff; }
-        .choice-button { 
-            width: 100%; 
-            padding: 16px; 
-            margin-bottom: 1rem; 
-            border-radius: 8px; 
-            text-align: center; 
-            font-weight: 600; 
-            cursor: pointer; 
-            transition: background-color 0.3s; 
+        .choice-button {
+            width: 100%;
+            padding: 16px;
+            margin-bottom: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s;
         }
         .viewer-btn { background-color: #4f46e5; }
         .viewer-btn:hover { background-color: #635bff; }
@@ -124,6 +124,7 @@
                     <div class="form-group"><label for="register-username">Username</label><input type="text" id="register-username" class="form-input" required></div>
                     <div class="form-group"><label for="register-password">Password</label><input type="password" id="register-password" class="form-input" required></div>
                     <input type="hidden" id="register-role" value="researcher">
+                    <div class="form-group"><label for="researcher-signup-key">Researcher invitation key</label><input type="password" id="researcher-signup-key" class="form-input" required autocomplete="off"></div>
                     <button type="submit" class="form-button">Register</button><p id="register-error" class="form-error"></p>
                     <button type="button" id="show-login-form" class="auth-toggle-link">Already have an account? Login</button>
                 </form>
@@ -131,8 +132,8 @@
         </div>
     </div>
     <script>
-        const API_BASE_URL = 'http://localhost:5000/api';
-        
+        const API_BASE_URL = `${window.location.origin}/api`;
+
         const choiceView = document.getElementById('choice-view');
         const loginFormContainer = document.getElementById('login-form-container');
         const registerFormContainer = document.getElementById('register-form-container');
@@ -169,7 +170,7 @@
             loginErrorEl.textContent = '';
             loginSuccessEl.textContent = '';
         });
-        
+
         function showLoginForm(successMessage = "") {
             registerFormContainer.classList.add('hidden');
             loginFormContainer.classList.remove('hidden');
@@ -210,7 +211,8 @@
                 const payload = {
                     username: e.target.elements['register-username'].value,
                     password: e.target.elements['register-password'].value,
-                    role: e.target.elements['register-role'].value
+                    role: e.target.elements['register-role'].value,
+                    researcher_signup_key: e.target.elements['researcher-signup-key'].value
                 };
                 const res = await fetch(`${API_BASE_URL}/auth/register`, {
                     method: 'POST',

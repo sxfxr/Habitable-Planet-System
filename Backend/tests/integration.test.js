@@ -1,0 +1,73 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { PGlite } = require('@electric-sql/pglite');
+const jwt = require('jsonwebtoken');
+process.env.JWT_SECRET = 'integration-test-secret-never-use-in-production';
+process.env.RESEARCHER_SIGNUP_KEY = 'integration-test-invitation';
+const database = new PGlite();
+const dbPath = require.resolve('../db');
+require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { query: (sql, params) => database.query(sql, params) } };
+const app = require('../index');
+let server, base;
+test.before(async () => {
+  const sql = fs.readFileSync(path.join(__dirname, '../schema.sql'), 'utf8');
+  await database.exec(sql);
+  await database.exec(sql); // Deploying again must preserve the schema.
+  server = app.listen(0);
+  await new Promise(resolve => server.once('listening', resolve));
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+test.after(async () => { if (server) await new Promise(resolve => server.close(resolve)); await database.close(); });
+async function request(route, method='GET', body, token) {
+  const response = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json', ...(token ? {Authorization: `Bearer ${token}`} : {}) }, ...(body ? {body: JSON.stringify(body)} : {}) });
+  return { status: response.status, data: await response.json() };
+}
+test('real PostgreSQL engine: registration, login, permissions, researcher CRUD and observations', async () => {
+  const viewer = {username:'integration-viewer', password:'local-test-pass-123', role:'viewer'};
+  assert.equal((await request('/api/health')).status, 200);
+  assert.equal((await request('/api/auth/register', 'POST', viewer)).status, 201);
+  assert.equal((await request('/api/auth/register', 'POST', viewer)).status, 409);
+  assert.equal((await request('/api/auth/login', 'POST', {...viewer, password:'wrong'})).status, 400);
+  const viewerLogin = await request('/api/auth/login', 'POST', viewer);
+  assert.equal(viewerLogin.status, 200);
+  assert.equal((await request('/api/stars', 'POST', {}, viewerLogin.data.token)).status, 403);
+  const researcher = {username:'integration-researcher', password:'local-test-pass-123', role:'researcher', researcher_signup_key:process.env.RESEARCHER_SIGNUP_KEY};
+  assert.equal((await request('/api/auth/register', 'POST', {...researcher,researcher_signup_key:'wrong'})).status, 403);
+  assert.equal((await request('/api/auth/register', 'POST', researcher)).status, 201);
+  const login = await request('/api/auth/login', 'POST', researcher);
+  assert.equal(login.status, 200);
+  const token = login.data.token;
+  const stored = await database.query('SELECT password_hash FROM users WHERE username=$1', [researcher.username]);
+  assert.notEqual(stored.rows[0].password_hash, researcher.password);
+  const starBody = {star_name:'Integration Star',distance_ly:3.26156,spectral_type:'G2V',luminosity:1};
+  const star = await request('/api/stars','POST',starBody,token);
+  assert.equal(star.status,201);
+  const planetBody = {star_id:star.data.star_id,planet_name:'Integration Planet',planet_type:'Rocky',angular_separation_arcsec:1};
+  const planet = await request('/api/planets','POST',planetBody,token);
+  assert.equal(planet.status,201);
+  assert.equal(planet.data.observation.habitability_classification,'Inside HZ');
+  assert.equal((await request('/api/planets','POST',planetBody,token)).status,409);
+  const id=planet.data.planet.planet_id;
+  const calculated=await request(`/api/planets/${id}/calculate`,'POST',{},token);
+  assert.equal(calculated.status,201);
+  assert.equal(Number(calculated.data.orbital_distance_au),1);
+  assert.equal((await request(`/api/planets/${id}`,'PUT',{...planetBody,angular_separation_arcsec:4},token)).status,200);
+  let observations=(await request(`/api/planets/${id}/observations`)).data;
+  assert.equal(observations.length,1);
+  assert.equal(observations[0].habitability_classification,'Too Cold');
+  assert.equal((await request(`/api/stars/${star.data.star_id}`,'PUT',{...starBody,luminosity:16},token)).status,200);
+  observations=(await request(`/api/planets/${id}/observations`)).data;
+  assert.equal(observations[0].habitability_classification,'Inside HZ');
+  assert.equal((await request(`/api/stars/${star.data.star_id}`)).data.planets.length,1);
+  const expired=jwt.sign({userId:1,role:'researcher'},process.env.JWT_SECRET,{expiresIn:-1});
+  assert.equal((await request('/api/stars','POST',starBody,expired)).status,401);
+});
+test('malformed login and oversized bcrypt input rejected', async () => {
+  assert.equal((await request('/api/auth/login','POST',{username:'x',password:{bad:true}})).status,400);
+  assert.equal((await request('/api/auth/register','POST',{username:'x',role:'viewer',password:'x'.repeat(73)})).status,400);
+  const result=await fetch(base+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:'{bad'});
+  assert.equal(result.status,400);
+  assert.equal((await result.json()).message,'Invalid JSON request.');
+});

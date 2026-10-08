@@ -1,0 +1,34 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const jwt = require('jsonwebtoken');
+const path = require('path');
+process.env.JWT_SECRET='local-test-secret-only-do-not-use-in-production';
+const dbPath = require.resolve('../db');
+const queries=[];
+const fakeDb={query: async (sql,params=[])=>{
+  queries.push({sql,params});
+  if (/SELECT 1/.test(sql)) return {rows:[{one:1}]};
+  if (/SELECT \* FROM Users WHERE username/.test(sql)) return {rows:[]};
+  if (/SELECT \* FROM stars ORDER BY/.test(sql)) return {rows:[{star_id:1,star_name:'Test'}]};
+  if (/UPDATE planets SET/.test(sql)) return {rows:[{planet_id:1,planet_name:params[0]}]};
+  if (/SELECT s.distance_ly/.test(sql)) return {rows:[{distance_ly:3.26156,luminosity:1}]};
+  if (/INSERT INTO planets/.test(sql)) return {rows:[{planet_id:1}]};
+  if (/SELECT \* FROM observations/.test(sql)) return {rows:[]};
+  return {rows:[]};
+}};
+require.cache[dbPath]={id:dbPath,filename:dbPath,loaded:true,exports:fakeDb};
+const app=require('../index');
+let server,base;
+test.before(async()=>{server=app.listen(0);await new Promise(r=>server.once('listening',r));base=`http://127.0.0.1:${server.address().port}`;});
+test.after(()=>server.close());
+async function request(route,method='GET',body,token){return fetch(base+route,{method,headers:{'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{})},...(body?{body:JSON.stringify(body)}:{})});}
+const researcher=jwt.sign({userId:1,role:'researcher'},process.env.JWT_SECRET);
+const viewer=jwt.sign({userId:2,role:'viewer'},process.env.JWT_SECRET);
+test('health verifies DB connectivity',async()=>{const r=await request('/api/health');assert.equal(r.status,200);assert.equal((await r.json()).database,'connected');});
+test('public stars list',async()=>{const r=await request('/api/stars');assert.equal(r.status,200);assert.equal((await r.json())[0].star_name,'Test');});
+test('researcher registration is invitation protected',async()=>{const r=await request('/api/auth/register','POST',{username:'demo',password:'password123',role:'researcher'});assert.equal(r.status,403);});
+test('reject invalid signup roles',async()=>{const r=await request('/api/auth/register','POST',{username:'demo',password:'password123',role:'admin'});assert.equal(r.status,400);});
+test('protected create requires researcher token',async()=>{const payload={star_name:'Demo',distance_ly:10,luminosity:1};assert.equal((await request('/api/stars','POST',payload)).status,401);assert.equal((await request('/api/stars','POST',payload,viewer)).status,403);});
+test('reject invalid star luminosity',async()=>{const r=await request('/api/stars','POST',{star_name:'Demo',distance_ly:10,luminosity:-1},researcher);assert.equal(r.status,400);});
+test('planet create stores angular separation, not orbital distance',async()=>{const r=await request('/api/planets','POST',{star_id:1,planet_name:'Demo',planet_type:'Rocky',angular_separation_arcsec:.2},researcher);assert.equal(r.status,201);const q=queries.findLast(x=>/INSERT INTO planets/.test(x.sql));assert.equal(q.params[3],.2);});
+test('planet edit updates angular separation and observation',async()=>{const r=await request('/api/planets/1','PUT',{planet_name:'Demo',planet_type:'Rocky',angular_separation_arcsec:1},researcher);assert.equal(r.status,200);const q=queries.findLast(x=>/UPDATE planets SET/.test(x.sql));assert.equal(q.params[2],1);assert.ok(queries.some(x=>/INSERT INTO observations/.test(x.sql)));});
