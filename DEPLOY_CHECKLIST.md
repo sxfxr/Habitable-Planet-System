@@ -1,14 +1,16 @@
-# Final deployment checklist
+# Deployment checklist
 
-- [ ] Create Neon project and run `Backend/schema.sql` in Neon SQL editor
-- [ ] Push project to GitHub (without `.env` or `node_modules`)
-- [ ] Connect GitHub repo to Render Blueprint (`render.yaml`)
-- [ ] Set `DATABASE_URL` privately; confirm auto-generated secrets
-- [ ] Check `/api/health` returns database connected
-- [ ] Open `/` and test Solar System, planet and moon navigation
-- [ ] Test viewer registration and login
-- [ ] Test researcher signup with private key and researcher editing
-- [ ] Add live URL and screenshots to README and GitHub About
-- [ ] Back up any important database records
+- [x] GitHub updated while preserving repository history
+- [x] Neon Free database schema and observation triggers applied
+- [x] Render Free service created in Singapore
+- [x] DATABASE_URL, JWT_SECRET, RESEARCHER_SIGNUP_KEY set privately
+- [x] Live API database connectivity verified
+- [x] Live viewer registration/login and role restrictions verified
+- [x] Live researcher star/planet editing and calculations verified through API
+- [x] README includes public URL and truthful verification status
+- [ ] Full planet and moon exploration on a WebGL-capable browser
+- [ ] Successful production invitation signup and authenticated form UI walkthrough
 
-A public URL and third-party service accounts cannot be created solely by downloading this ZIP. You must authorize GitHub/Render/Neon account connections and set the hosted database URL.
+See TEST_REPORT.md for exact coverage. Render uses its default port health check;
+`/api/health` is available and verified separately. The Blueprint declares the
+application health route for future Blueprint-managed deployments.

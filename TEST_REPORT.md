@@ -1,36 +1,45 @@
-# Verification status — 2026-10-08
+# Deployment verification — 2026-10-09
 
-Deployment is pending; no live website has been verified yet.
+Website: https://celestial-voyager-safar.onrender.com/
+Repository: https://github.com/sxfxr/Habitable-Planet-System
+Hosting: Render Free, Singapore. Database: Neon Free, PostgreSQL 18, Singapore.
 
-## Local verification
+## Passed
 
-- Original supplied suite: 12/12 passed.
-- Expanded suite: 14/14 passed, including two embedded PostgreSQL (PGlite) integration tests.
-- Integration coverage: repeated schema application, viewer and invited researcher registration,
-  duplicate usernames, invalid passwords, login, password hashing, role restrictions,
-  star creation/editing, planet creation/editing, duplicate planets, initial observations,
-  habitability calculation, daily observation upserts, star-change recalculation,
-  expired tokens, malformed JSON, and oversized bcrypt inputs.
-- Dependency audit after compatible fixes: zero reported vulnerabilities.
-- PGlite tests execute PostgreSQL SQL/PLpgSQL but do not verify Neon network/TLS connectivity.
+- Existing automated suite and embedded PostgreSQL integration coverage: 14/14.
+- Render production build ran all 14 tests successfully.
+- Dependency audit: zero reported vulnerabilities at preparation time.
+- Live `/api/health`: HTTP 200, database connected.
+- Live viewer registration and login; wrong passwords rejected.
+- Live viewer writes rejected with 403; invalid researcher invitations rejected.
+- Live researcher login, star creation and editing, planet creation and editing.
+- Live initial observation trigger, calculation endpoint, daily observation upsert,
+  and automatic recalculation after editing a star.
+- Live public star details and observation retrieval.
+- Authentication entry page rendered; viewer entry navigated to the explorer.
+- Original frontend inline scripts passed syntax checks.
 
-- All three frontend inline scripts pass Node syntax checks.
-- Local browser testing was blocked: the Chromium download returned an invalid archive.
+The synthetic account was promoted in the database to test researcher endpoints,
+then returned to viewer. Successful invitation-based researcher signup was tested
+locally but was not repeated on production. One labelled demo star and planet remain
+in the catalog as verification sample data.
 
-## Required live checks
+## Not fully verified
 
-Neon schema and TLS connection; Render health check; desktop/mobile planet and moon
-navigation; viewer registration/login/logout; invited researcher registration/login;
-researcher create/edit/calculate workflows; browser console and network failures.
+The cloud browser reports `GL_RENDERER = Disabled` and cannot create a WebGL
+context. Thus planet and moon rendering, camera controls, and full visual navigation
+remain unverified in a WebGL-capable browser. A graceful fallback now explains the
+requirement while leaving authentication available. Do not interpret the passing
+API suite as confirmation that these visual checks passed.
 
-## Fixes
+Full authenticated researcher form interaction was tested through its live API, not
+through entering credentials in the browser UI. Render free services can sleep;
+the first request after inactivity may take longer. CDN assets require internet.
 
-Render serves the entire repository rather than an inaccessible sibling frontend.
-Startup applies an idempotent transactional schema migration. Observation triggers
-keep newly created planets and edited stars consistent. Database-derived labels are
-escaped, expired sessions are handled, auth input is validated, dependency advisories
-are resolved, and hosted PostgreSQL uses certificate verification.
+## Deployment fixes
 
-## Account deployment status
-
-GitHub write access verified. Neon free project connected. Production deployment and live verification are in progress.
+Repository-root Render build includes the sibling frontend. Startup applies the
+schema transactionally. Observation triggers support inserts and edits. Database
+TLS verifies certificates. Database labels are escaped. Auth validation, expiry
+handling, viewer logout, dependencies, documentation, and CI were improved.
+Secrets are configured on Render, not committed to Git.

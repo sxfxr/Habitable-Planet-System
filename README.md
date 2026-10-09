@@ -2,7 +2,7 @@
 
 An interactive **3D Solar System and planetary exploration experience**, paired with a **researcher-facing star/planet database** and a simplified educational habitability calculator.
 
-**Live demo:** Add your Render URL after deployment.
+**Live demo:** https://celestial-voyager-safar.onrender.com/
 **Source:** https://github.com/sxfxr/Habitable-Planet-System
 
 ## Features
@@ -58,7 +58,7 @@ The repository includes `render.yaml` to deploy the entire app as **one Render w
 5. Provide the secret `DATABASE_URL` using Neon's pooled connection string if offered. Render generates random `JWT_SECRET` and `RESEARCHER_SIGNUP_KEY` automatically; keep both private. If the Blueprint interface does not generate them, set them manually to independent random values.
 6. Deploy. Visit `https://YOUR-RENDER-SERVICE.onrender.com/api/health` and verify `{ "status": "ok", "database": "connected" }`. Open the same URL without `/api/health` to explore the app.
 7. Register a viewer, then register a researcher with the private researcher invitation key. Test login, creating/editing a star and planet, and calculating an observation. **Never publish the invitation key.**
-8. Add the actual live URL and screenshots to this README and your GitHub repository description.
+8. Complete the browser checks in `TEST_REPORT.md` before claiming full visual verification.
 
 **Important:** Render free web services may sleep when idle and wake slowly. Free plans and quotas can change. Keep a database backup. This is a portfolio/demo setup, not a hardened multi-tenant production service. In-memory authentication rate limiting resets on restart and is not a replacement for a shared production rate limiter.
 
@@ -115,3 +115,22 @@ The application starts with an empty research catalog; its built-in Solar System
 seven moon exhibits remain available independently of the catalog.
 
 See [verification status](TEST_REPORT.md) and [deployment checklist](DEPLOY_CHECKLIST.md).
+
+## Live deployment status
+
+Deployed to Render Free in Singapore with Neon Free PostgreSQL 18. The schema is
+installed, credentials are stored in Render environment variables, and Git history
+is preserved. Live API checks passed on 2026-10-09 for database connectivity,
+registration/login, access restrictions, researcher star/planet creation and edits,
+and observation calculation/recalculation. The research catalog contains one clearly
+labelled verification demo star and planet. The synthetic test account was returned
+to the viewer role after testing.
+
+**Visual verification limitation:** the cloud test browser disables WebGL, so planet
+and moon rendering/navigation could not be validated end to end there. The frontend
+now displays a useful graphics-unavailable message while keeping authentication
+available. Use a WebGL-capable browser with graphics acceleration for 3D exploration.
+This limitation is recorded openly; successful API checks do not imply visual checks passed.
+
+For researcher registration, retrieve `RESEARCHER_SIGNUP_KEY` privately from the
+Render service's Environment settings. Never publish that key or the database URL.

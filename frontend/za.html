@@ -960,7 +960,15 @@
         }
 
         function main() {
-            initScene();
+            updateAuthUI();
+            try { initScene(); } catch (error) {
+                console.error('3D initialization failed:', error);
+                panelTitle.textContent = '3D graphics unavailable';
+                mainList.innerHTML = '<li class="static-info">Your browser could not start WebGL. Enable graphics acceleration in your browser settings, then reopen this page. Login and the researcher panel are still available.</li>';
+                document.getElementById('launch-solar').hidden = true;
+                document.getElementById('instructions').textContent = 'WebGL is required for planet and moon exploration.';
+                return;
+            }
             document.getElementById('launch-solar').onclick=()=>{const solar=solarSystems.find(isSolarDemo);if(solar)zoomToSystem(solar);};
             document.getElementById('pause-orbits').onclick=()=>{orbitPaused=!orbitPaused;document.getElementById('pause-orbits').textContent=orbitPaused?'Play':'Pause';};
             document.getElementById('reset-view').onclick=()=>{if(activeSystem) zoomToSystem(activeSystem);};
